@@ -234,11 +234,18 @@ class User:
     }
     invalid_keys = [k for k in patch if k not in allowed]
     if invalid_keys:
-      raise ValueError(f"Unsupporterd patch fields: {', '.join(invalid_keys)}")
+      raise ValueError(f"Unsupported patch fields: {', '.join(invalid_keys)}")
     
     normalized_patch = dict(patch)
     if "groups" in normalized_patch:
-      normalized_patch["groups"] = tuple(normalized_patch["groups"])
+      raw_groups = normalized_patch["groups"]
+      if isinstance(raw_groups, str):
+        normalized_groups = [g.strip() for g in raw_groups.split(",") if g.strip()]
+      elif isinstance(raw_groups, (list, tuple, set)):
+        normalized_groups = [g.strip() for g in raw_groups if isinstance(g, str) and g.strip()]
+      else:
+        normalized_groups = []
+      normalized_patch["groups"] = tuple(normalized_groups)
     if "account_expire_date" in normalized_patch:
       normalized_patch["account_expire_date"] = self._parse_date_maybe(
         normalized_patch["account_expire_date"], self.account_expire_date
@@ -328,6 +335,8 @@ class User:
 
   @staticmethod
   def _is_valid_username(username: str) -> bool:
+    if not username:
+      return False
     if len(username) > USERNAME_MAX_LENGTH:
       return False
     
