@@ -347,7 +347,7 @@ class User:
       except ValueError:
         continue
 
-    raise ValueError(f"Unsopprted date format: {raw!r}")
+    raise ValueError(f"Unsupprted date format: {raw!r}")
   
   @staticmethod
   def _parse_date_maybe(raw: Any, fallback: date | None = None) -> date | None:
