@@ -244,6 +244,75 @@ class User:
     if self.primary_group:
       all_groups.add(self.primary_group)
     return sorted(all_groups)
+  
+  def to_dict(self, include_private: bool = False) -> dict[str, Any]:
+    data = {
+      "username": self.username,
+      "uid": self.uid,
+      "gid": self.gid,
+      "home": self.home,
+      "shell": self.shell,
+      "groups": list(self.groups),
+      "primary_group": self.primary_group,
+      "gecos": self.gecos,
+      "locked": self.is_locked(),
+      "login_allowed": self.login_allowed,
+      "sudo": self.has_sudo(),
+      "system_account": self.is_system_account(),
+      "account_expire_date": self.account_expire_date.isoformat() if self.account_expire_date else None,
+      "password_last_changed": self.password_last_changed.isoformat() if self.password_last_changed else None,
+      "pass_max_days": self.pass_max_days,
+      "inactive_days": self.inactive_days,
+      "force_password_change": self.force_password_change
+    }
+
+    if include_private:
+      data["metadata"] = dict(self.metadata)
+      data["lock_status"] = self.lock_status
+      data["explicit_system_account"] = self.excplicit_system_account
+    return data
+  
+  def to_report_row(self) -> dict[str, Any]:
+    return {
+      "username": self.username,
+      "uid": self.uid,
+      "home": self.home,
+      "shell": self.shell,
+      "locked": self.is_locked(),
+      "expired": self.is_expired(),
+      "active": self.is_active(),
+      "sudo": self.has_sudo(),
+      "groups_count": len(self.effective_groups())
+    }
+  
+  def summary(self) -> dict[str, Any]:
+    return{
+      "username": self.username,
+      "uid": self.uid,
+      "active": self.is_active(),
+      "locked": self.is_locked(),
+      "sudo": self.has_sudo()
+    }
+  
+  def attach_poilcy(self, policy: Any) -> "User":
+    return replace(self, metadata={**self.metadata, "policy": policy})
+
+  def effective_policy(self) -> Any:
+    return self.metadata.get("policy")
+  
+  def display_name(self) -> str:
+    return self.gecos.strip() if self.gecos and self.gecos.strip() else self.username
+
+  def __str__(self) -> str:
+    return f"User(username={self.username}, uid={self.uid}, active={self.is_active()})"
+
+  def __repr__(self) -> str:
+    return(
+      "User(" \
+      f"username={self.username!r}, uid={self.uid}, gid={self.gid}, "
+      f"home={self.home!r}, shell={self.shell!r}, locked={self.is_locked()}, sudo={self.has_sudo()}"
+      ")"
+    )
 
   @staticmethod
   def _is_valid_username(username: str) -> bool:
