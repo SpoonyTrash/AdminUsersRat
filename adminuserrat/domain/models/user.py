@@ -86,9 +86,18 @@ class User:
     groups = payload.get("groups") or []
 
     if isinstance(groups, str):
-      groups = [g.strip() for g in groups.split(",") if g.strip()]
+      normalized_groups = [g.strip() for g in groups.split(",") if g.strip()]
+    elif isinstance(groups, (list, tuple, set)):
+      normalized_groups = [g.strip() for g in groups if isinstance(g, str) and g.strip()]
+    else:
+      normalized_groups = []
     
-    payload["groups"] = tuple(groups)
+    payload["groups"] = tuple(normalized_groups)
+
+    for id_field in ("uid", "gid"):
+      raw = payload.get(id_field)
+      if raw is not None:
+        payload[id_field] = int(raw)
 
     for date_field in ("account_expire_date", "password_last_changed"):
       raw = payload.get(date_field)
@@ -116,7 +125,7 @@ class User:
   
   def normalize(self) -> dict[str, Any]:
     username = self.username.strip().lower()
-    groups = tuple(g.strip() for g in self.groups if g and g.strip())
+    groups = tuple(g.strip() for g in self.groups if isinstance(g, str) and g.strip())
     home_path = str(PurePosixPath("/" + self.home.lstrip("/"))) if self.home else f"/home/{username}"
     shell = self.shell.strip() if self.shell else DEFAULT_SHELL
 
