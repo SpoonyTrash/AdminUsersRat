@@ -1,12 +1,13 @@
-from dataclasses import dataclass,field, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from pathlib import PurePosixPath
-from typing import Any, Mapping, List
+from typing import Any, Mapping
 
 DEFAULT_SHELL = "/bin/bash"
 SYSTEM_UID_THRESHOLD = 1000
 CRITICAL_USERNAMES = {"root", "nobody", "daemon", "bin", "sys", "sync", "games", "man"}
 DEFAULT_DELETE_PROTECTED_UID = 100
+USERNAME_MAX_LENGTH = 32
 
 @dataclass(frozen=True)
 class User:
@@ -37,6 +38,7 @@ class User:
     object.__setattr__(self, "shell", normalized["shell"])
     object.__setattr__(self, "groups", tuple(dict.fromkeys(normalized["groups"])))
     object.__setattr__(self, "metadata", dict(self.metadata or {}))
+    self.validate()
 
   @classmethod
   def create(
@@ -248,7 +250,7 @@ class User:
 
     return replace(self, **normalized_patch)
   
-  def effective_groups(self) -> List[str]:
+  def effective_groups(self) -> list[str]:
     all_groups = set(self.groups)
     if self.primary_group:
       all_groups.add(self.primary_group)
@@ -266,7 +268,8 @@ class User:
       "gecos": self.gecos,
       "locked": self.is_locked(),
       "login_allowed": self.login_allowed,
-      "sudo": self.has_sudo(),
+      "sudo_enabled": self.sudo_enabled,
+      "has_sudo": self.has_sudo(),
       "system_account": self.is_system_account(),
       "account_expire_date": self.account_expire_date.isoformat() if self.account_expire_date else None,
       "password_last_changed": self.password_last_changed.isoformat() if self.password_last_changed else None,
@@ -303,7 +306,7 @@ class User:
       "sudo": self.has_sudo()
     }
   
-  def attach_poilcy(self, policy: Any) -> "User":
+  def attach_policy(self, policy: Any) -> "User":
     return replace(self, metadata={**self.metadata, "policy": policy})
 
   def effective_policy(self) -> Any:
@@ -325,7 +328,7 @@ class User:
 
   @staticmethod
   def _is_valid_username(username: str) -> bool:
-    if len(username) > 32:
+    if len(username) > USERNAME_MAX_LENGTH:
       return False
     
     allowed = set("abcdefghijklmnopqrstuvwxyz0123456789._-")
