@@ -8,6 +8,8 @@ SYSTEM_UID_THRESHOLD = 1000
 CRITICAL_USERNAMES = {"root", "nobody", "daemon", "bin", "sys", "sync", "games", "man"}
 DEFAULT_DELETE_PROTECTED_UID = 100
 USERNAME_MAX_LENGTH = 32
+MAX_POSIX_ID = 2**32-1
+SENSITIVE_METADATA_KEYWORDS = ("shadow", "passwd", "password", "hash", "secret", "token", "raw")
 
 @dataclass(frozen=True)
 class User:
@@ -85,16 +87,7 @@ class User:
   @classmethod
   def from_dict(cls, data: Mapping[str, Any]) -> "User":
     payload = dict(data)
-    groups = payload.get("groups") or []
-
-    if isinstance(groups, str):
-      normalized_groups = [g.strip() for g in groups.split(",") if g.strip()]
-    elif isinstance(groups, (list, tuple, set)):
-      normalized_groups = [g.strip() for g in groups if isinstance(g, str) and g.strip()]
-    else:
-      normalized_groups = []
-    
-    payload["groups"] = tuple(normalized_groups)
+    payload["groups"] = cls._normalize_groups(payload.get("groups")or [])
 
     for id_field in ("uid", "gid"):
       raw = payload.get(id_field)
@@ -123,11 +116,11 @@ class User:
     )
   
   def with_groups(self, groups: list[str], primary_gid: int | None = None) -> "User":
-    return replace(self, groups=tuple(groups), gid=primary_gid if primary_gid is not None else self.gid)
+    return replace(self, groups=self._normalize_groups(groups), gid=primary_gid if primary_gid is not None else self.gid)
   
   def normalize(self) -> dict[str, Any]:
     username = self.username.strip().lower()
-    groups = tuple(g.strip() for g in self.groups if isinstance(g, str) and g.strip())
+    groups = self._normalize_groups(self.groups)
     home_path = str(PurePosixPath("/" + self.home.lstrip("/"))) if self.home else f"/home/{username}"
     shell = self.shell.strip() if self.shell else DEFAULT_SHELL
 
@@ -238,14 +231,7 @@ class User:
     
     normalized_patch = dict(patch)
     if "groups" in normalized_patch:
-      raw_groups = normalized_patch["groups"]
-      if isinstance(raw_groups, str):
-        normalized_groups = [g.strip() for g in raw_groups.split(",") if g.strip()]
-      elif isinstance(raw_groups, (list, tuple, set)):
-        normalized_groups = [g.strip() for g in raw_groups if isinstance(g, str) and g.strip()]
-      else:
-        normalized_groups = []
-      normalized_patch["groups"] = tuple(normalized_groups)
+      normalized_patch["groups"] = self._normalize_groups(normalized_patch["groups"])
     if "account_expire_date" in normalized_patch:
       normalized_patch["account_expire_date"] = self._parse_date_maybe(
         normalized_patch["account_expire_date"], self.account_expire_date
@@ -286,7 +272,7 @@ class User:
     }
 
     if include_private:
-      data["metadata"] = dict(self.metadata)
+      data["metadata"] = self._sanitize_metadata(self.metadata)
       data["lock_status"] = self.lock_status
       data["explicit_system_account"] = self.explicit_system_account
     return data
@@ -345,11 +331,23 @@ class User:
 
   @staticmethod
   def _is_valid_id(value: int) -> bool:
-    return isinstance(value, int) and 0 <= value <= 60000
+    return isinstance(value, int) and 0 <= value <= MAX_POSIX_ID
 
   @staticmethod
   def _parse_date(raw: str) -> date:
-    return datetime.fromisoformat(raw).date()
+    try:
+      return datetime.fromisoformat(raw).date()
+    except ValueError:
+      pass
+      
+    supported_formats = ("%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y")
+    for fmt in supported_formats:
+      try:
+        return datetime.strptime(raw, fmt).date()
+      except ValueError:
+        continue
+
+    raise ValueError(f"Unsopprted date format: {raw!r}")
   
   @staticmethod
   def _parse_date_maybe(raw: Any, fallback: date | None = None) -> date | None:
@@ -360,3 +358,22 @@ class User:
     if isinstance(raw, str) and raw:
       return User._parse_date(raw)
     return fallback
+
+  @staticmethod
+  def _normalize_groups(raw_groups: Any) -> tuple[str, ...]:
+    if isinstance(raw_groups, str):
+      return tuple(g.strip() for g in raw_groups.split(",") if isinstance(g, str) and g.strip())
+    if isinstance(raw_groups, (list, tuple, set)):
+      return tuple(g.strip() for g in raw_groups if isinstance(g, str) and g.strip())
+    return tuple()
+  
+  @staticmethod
+  def _sanitize_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    sanitized: dict[str, Any] = {}
+    for key, value in metadata.items():
+      normalized_key = str(key).lower()
+      if any(keyword in normalized_key for keyword in SENSITIVE_METADATA_KEYWORDS):
+        sanitized[str(key)] = "[redacted]"
+      else:
+        sanitized[str(key)] = value
+    return sanitized
