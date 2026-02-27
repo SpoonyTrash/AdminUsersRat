@@ -27,7 +27,7 @@ class User:
   password_last_changed: date | None = None
   pass_max_days: int | None = None
   force_password_change: bool = False
-  excplicit_system_account: bool | None = None
+  explicit_system_account: bool | None = None
   metadata: Mapping[str, Any] = field(default_factory=dict)
 
   def __post_init__(self) -> None:
@@ -77,7 +77,7 @@ class User:
       home=record.get("home") or record.get("home_dir"),
       shell=record.get("shell"),
       gecos=record.get("gecos"),
-      metada={"source": "passwd", "raw": dict(record)}
+      metadata={"source": "passwd", "raw": dict(record)}
     )
   
   @classmethod
@@ -165,8 +165,8 @@ class User:
     return self.sudo_enabled or bool({"sudo", "wheel"} & groups_lower)
 
   def is_system_account(self, uid_threshold: int = SYSTEM_UID_THRESHOLD) -> bool:
-    if self.excplicit_system_account is not None:
-      return self.excplicit_system_account
+    if self.explicit_system_account is not None:
+      return self.explicit_system_account
     return self.uid < uid_threshold
   
   def can_be_deleted(self) -> tuple[bool, str | None]:
@@ -269,7 +269,7 @@ class User:
     if include_private:
       data["metadata"] = dict(self.metadata)
       data["lock_status"] = self.lock_status
-      data["explicit_system_account"] = self.excplicit_system_account
+      data["explicit_system_account"] = self.explicit_system_account
     return data
   
   def to_report_row(self) -> dict[str, Any]:
