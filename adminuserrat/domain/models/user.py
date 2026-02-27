@@ -112,7 +112,7 @@ class User:
     )
   
   def with_groups(self, groups: list[str], primary_gid: int | None = None) -> "User":
-    return replace(self, groups=tuple(groups), gid=self.primary_gid if primary_gid is not None else self.gid)
+    return replace(self, groups=tuple(groups), gid=primary_gid if primary_gid is not None else self.gid)
   
   def normalize(self) -> dict[str, Any]:
     username = self.username.strip().lower()
@@ -330,11 +330,12 @@ class User:
   def _parse_date(raw: str) -> date:
     return datetime.fromisoformat(raw).date()
   
-  def _parse_date_maybe(cls, raw: Any, fallback: date | None = None) -> date | None:
+  @staticmethod
+  def _parse_date_maybe(raw: Any, fallback: date | None = None) -> date | None:
     if raw is None:
       return fallback
     if isinstance(raw, date):
       return raw
     if isinstance(raw, str) and raw:
-      return cls._parse_date(raw)
+      return User._parse_date(raw)
     return fallback
