@@ -21,11 +21,11 @@ SENSITIVE_METADATA_KEYWORDS = ("password", "hash", "secret", "token")
 class User:
   username: str
   uid: int
-  gid: int
+  gid: int | None
   home: str
   shell: str
   groups: tuple[str, ...] = field(default_factory=tuple)
-  primary_group: str | None = None
+  primary_group_name: str | None = None
   gecos: str | None = None
   locked: bool = False
   lock_status: str | None = None
@@ -45,6 +45,8 @@ class User:
     object.__setattr__(self, "home", normalized["home"])
     object.__setattr__(self, "shell", normalized["shell"])
     object.__setattr__(self, "groups", tuple(dict.fromkeys(normalized["groups"])))
+    normalized_primary_group = self.primary_group_name.strip() if self.primary_group_name else None
+    object.__setattr__(self, "primary_group_name", normalized_primary_group or None)
     object.__setattr__(self, "metadata", dict(self.metadata or {}))
     self.validate()
 
@@ -53,7 +55,7 @@ class User:
     cls,
     username: str,
     uid: int,
-    gid: int,
+    gid: int | None = None,
     home: str | None = None,
     shell: str | None = None,
     groups: list[str] | tuple[str, ...] | None = None,
@@ -85,9 +87,14 @@ class User:
 
     for id_field in ("uid", "gid"):
       raw = payload.get(id_field)
-      if raw is not None:
+      if raw not in (None, ""):
         payload[id_field] = int(raw)
 
+    if "primary_group_name" not in payload and "primary_group" in payload:
+      payload["primary_group_name"] = payload.get("primary_group")
+      
+    payload.setdefault("gid", None)
+    
     for date_field in ("account_expire_date", "password_last_changed"):
       raw = payload.get(date_field)
       
@@ -96,9 +103,13 @@ class User:
     
     return cls(**payload)
   
-  def with_groups(self, groups: list[str], primary_gid: int | None = None) -> "User":
-    return replace(self, groups=normalize_groups(groups), gid=primary_gid if primary_gid is not None else self.gid)
-  
+  def with_groups(self, groups: list[str], primary_group_name: str | None = None) -> "User":
+    if self.primary_group_name is None:
+      normalized_primary_group = self.primary_group_name
+    else:
+      normalized_primary_group = primary_group_name.strip() or None
+    return replace(self, groups=normalize_groups(groups), primary_group_name=normalized_primary_group)
+      
   def normalize(self) -> dict[str, Any]:
     username = self.username.strip().lower()
     groups = normalize_groups(self.groups)
@@ -112,7 +123,7 @@ class User:
       raise ValueError(f"Invalid username: {self.username!r}")
     if not is_valid_id(self.uid):
       raise ValueError(f"invalid uid: {self.uid}")
-    if not is_valid_id(self.gid):
+    if self.gid is not None and not is_valid_id(self.gid):
       raise ValueError(f"invalid gid: {self.gid}")
     if not self.home.startswith("/"):
       raise ValueError("home must be an absolute path.")
@@ -238,7 +249,8 @@ class User:
       "home": self.home,
       "shell": self.shell,
       "groups": list(self.groups),
-      "primary_group": self.primary_group,
+      "primary_group_name": self.primary_group_name,
+      "primary_group": self.primary_group_name,
       "gecos": self.gecos,
       "locked": self.is_locked(),
       "login_allowed": self.login_allowed,
