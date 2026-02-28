@@ -9,7 +9,7 @@ CRITICAL_USERNAMES = {"root", "nobody", "daemon", "bin", "sys", "sync", "games",
 DEFAULT_DELETE_PROTECTED_UID = 100
 USERNAME_MAX_LENGTH = 32
 MAX_POSIX_ID = 2**32-1
-SENSITIVE_METADATA_KEYWORDS = ("shadow", "passwd", "password", "hash", "secret", "token", "raw")
+SENSITIVE_METADATA_KEYWORDS = ("password", "hash", "secret", "token")
 
 @dataclass(frozen=True)
 class User:
@@ -71,18 +71,6 @@ class User:
       explicit_system_account=explicit_system_account,
       **kwargs,
     )
-
-  @classmethod
-  def from_passwd_record(cls, record: Mapping[str, Any]) -> "User":
-    return cls.create(
-      username=str(record.get("username") or record.get("name") or ""),
-      uid=int(record.get("uid", -1)),
-      gid=int(record.get("gid", -1)),
-      home=record.get("home") or record.get("home_dir"),
-      shell=record.get("shell"),
-      gecos=record.get("gecos"),
-      metadata={"source": "passwd", "raw": dict(record)}
-    )
   
   @classmethod
   def from_dict(cls, data: Mapping[str, Any]) -> "User":
@@ -101,19 +89,6 @@ class User:
         payload[date_field] = cls._parse_date(raw)
     
     return cls(**payload)
-  
-  def with_shadow_info(self, shadow_info: Mapping[str, Any]) -> "User":
-    return replace(
-      self,
-      locked=bool(shadow_info.get("locked", self.locked)),
-      lock_status=shadow_info.get("lock_status", self.lock_status),
-      account_expire_date= self._parse_date_maybe(shadow_info.get("account_expire_date"), self.account_expire_date),
-      password_last_changed=self._parse_date_maybe(shadow_info.get("password_last_changed"), self.password_last_changed),
-      pass_max_days=shadow_info.get("pass_max_days", self.pass_max_days),
-      inactive_days=shadow_info.get("inactive_days", self.inactive_days),
-      force_password_change=bool(shadow_info.get("force_password_change", self.force_password_change)),
-      metadata={**self.metadata, "shadow": dict(shadow_info)}
-    )
   
   def with_groups(self, groups: list[str], primary_gid: int | None = None) -> "User":
     return replace(self, groups=self._normalize_groups(groups), gid=primary_gid if primary_gid is not None else self.gid)
