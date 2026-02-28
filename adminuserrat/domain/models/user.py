@@ -1,14 +1,20 @@
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime
+from datetime import date
 from pathlib import PurePosixPath
 from typing import Any, Mapping
+
+from adminuserrat.domain.validators import (
+  parse_date,
+  parse_date_maybe,
+  normalize_groups,
+  is_valid_username,
+  is_valid_id
+)
 
 DEFAULT_SHELL = "/bin/bash"
 SYSTEM_UID_THRESHOLD = 1000
 CRITICAL_USERNAMES = {"root", "nobody", "daemon", "bin", "sys", "sync", "games", "man"}
 DEFAULT_DELETE_PROTECTED_UID = 100
-USERNAME_MAX_LENGTH = 32
-MAX_POSIX_ID = 2**32-1
 SENSITIVE_METADATA_KEYWORDS = ("password", "hash", "secret", "token")
 
 @dataclass(frozen=True)
@@ -75,7 +81,7 @@ class User:
   @classmethod
   def from_dict(cls, data: Mapping[str, Any]) -> "User":
     payload = dict(data)
-    payload["groups"] = cls._normalize_groups(payload.get("groups")or [])
+    payload["groups"] = normalize_groups(payload.get("groups")or [])
 
     for id_field in ("uid", "gid"):
       raw = payload.get(id_field)
@@ -86,27 +92,27 @@ class User:
       raw = payload.get(date_field)
       
       if isinstance(raw, str) and raw:
-        payload[date_field] = cls._parse_date(raw)
+        payload[date_field] = parse_date(raw)
     
     return cls(**payload)
   
   def with_groups(self, groups: list[str], primary_gid: int | None = None) -> "User":
-    return replace(self, groups=self._normalize_groups(groups), gid=primary_gid if primary_gid is not None else self.gid)
+    return replace(self, groups=normalize_groups(groups), gid=primary_gid if primary_gid is not None else self.gid)
   
   def normalize(self) -> dict[str, Any]:
     username = self.username.strip().lower()
-    groups = self._normalize_groups(self.groups)
+    groups = normalize_groups(self.groups)
     home_path = str(PurePosixPath("/" + self.home.lstrip("/"))) if self.home else f"/home/{username}"
     shell = self.shell.strip() if self.shell else DEFAULT_SHELL
 
     return {"username": username, "home": home_path, "shell": shell, "groups": groups}
 
   def validate(self) -> None:
-    if not self.username or not self._is_valid_username(self.username):
+    if not self.username or not is_valid_username(self.username):
       raise ValueError(f"Invalid username: {self.username!r}")
-    if not self._is_valid_id(self.uid):
+    if not is_valid_id(self.uid):
       raise ValueError(f"invalid uid: {self.uid}")
-    if not self._is_valid_id(self.gid):
+    if not is_valid_id(self.gid):
       raise ValueError(f"invalid gid: {self.gid}")
     if not self.home.startswith("/"):
       raise ValueError("home must be an absolute path.")
@@ -206,13 +212,13 @@ class User:
     
     normalized_patch = dict(patch)
     if "groups" in normalized_patch:
-      normalized_patch["groups"] = self._normalize_groups(normalized_patch["groups"])
+      normalized_patch["groups"] = normalize_groups(normalized_patch["groups"])
     if "account_expire_date" in normalized_patch:
-      normalized_patch["account_expire_date"] = self._parse_date_maybe(
+      normalized_patch["account_expire_date"] = parse_date_maybe(
         normalized_patch["account_expire_date"], self.account_expire_date
       )
     if "password_last_changed" in normalized_patch:
-      normalized_patch["password_last_changed"] = self._parse_date_maybe(
+      normalized_patch["password_last_changed"] = parse_date_maybe(
         normalized_patch["password_last_changed"], self.password_last_changed
       )
 
@@ -294,54 +300,6 @@ class User:
       ")"
     )
 
-  @staticmethod
-  def _is_valid_username(username: str) -> bool:
-    if not username:
-      return False
-    if len(username) > USERNAME_MAX_LENGTH:
-      return False
-    
-    allowed = set("abcdefghijklmnopqrstuvwxyz0123456789._-")
-    return username[0].isalnum() and all(ch in allowed for ch in username)
-
-  @staticmethod
-  def _is_valid_id(value: int) -> bool:
-    return isinstance(value, int) and 0 <= value <= MAX_POSIX_ID
-
-  @staticmethod
-  def _parse_date(raw: str) -> date:
-    try:
-      return datetime.fromisoformat(raw).date()
-    except ValueError:
-      pass
-      
-    supported_formats = ("%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y")
-    for fmt in supported_formats:
-      try:
-        return datetime.strptime(raw, fmt).date()
-      except ValueError:
-        continue
-
-    raise ValueError(f"Unsupprted date format: {raw!r}")
-  
-  @staticmethod
-  def _parse_date_maybe(raw: Any, fallback: date | None = None) -> date | None:
-    if raw is None:
-      return fallback
-    if isinstance(raw, date):
-      return raw
-    if isinstance(raw, str) and raw:
-      return User._parse_date(raw)
-    return fallback
-
-  @staticmethod
-  def _normalize_groups(raw_groups: Any) -> tuple[str, ...]:
-    if isinstance(raw_groups, str):
-      return tuple(g.strip() for g in raw_groups.split(",") if isinstance(g, str) and g.strip())
-    if isinstance(raw_groups, (list, tuple, set)):
-      return tuple(g.strip() for g in raw_groups if isinstance(g, str) and g.strip())
-    return tuple()
-  
   @staticmethod
   def _sanitize_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
     sanitized: dict[str, Any] = {}
