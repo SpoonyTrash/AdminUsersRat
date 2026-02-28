@@ -302,11 +302,20 @@ class User:
 
   @staticmethod
   def _sanitize_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    def sanitize_value(value: Any) -> Any:
+      if isinstance(value, Mapping):
+        return User._sanitize_metadata(value)
+      if isinstance(value, list):
+        return [sanitize_value(item) for item in value]
+      if isinstance(value, tuple):
+        return tuple(sanitize_value(item) for item in value)
+      return value
+    
     sanitized: dict[str, Any] = {}
     for key, value in metadata.items():
       normalized_key = str(key).lower()
       if any(keyword in normalized_key for keyword in SENSITIVE_METADATA_KEYWORDS):
         sanitized[str(key)] = "[redacted]"
       else:
-        sanitized[str(key)] = value
+        sanitized[str(key)] = sanitize_value(value)
     return sanitized
